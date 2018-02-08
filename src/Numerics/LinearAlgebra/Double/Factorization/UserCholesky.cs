@@ -53,10 +53,17 @@ namespace MathNet.Numerics.LinearAlgebra.Double.Factorization
         /// <exception cref="ArgumentException">If <paramref name="factor"/> is not positive definite.</exception>
         static void DoCholesky(Matrix<double> factor)
         {
+            bool robust = true;
+
             if (factor.RowCount != factor.ColumnCount)
             {
                 throw new ArgumentException(Resources.ArgumentMatrixSquare);
             }
+
+            // first perform to factorize A into L and D that A = LDL'
+            // if robust, then Dii = Aii and Lii = 1.0
+            // else Dii = 1.0 and Lii = sqrt(Aii)
+            // A = LDL' = (LD^1/2)(LD^1/2)' so we can calculate L as LD^1/2
 
             var tmpColumn = new double[factor.RowCount];
 
@@ -68,24 +75,42 @@ namespace MathNet.Numerics.LinearAlgebra.Double.Factorization
 
                 if (tmpVal > 0.0)
                 {
-                    tmpVal = Math.Sqrt(tmpVal);
-                    factor.At(ij, ij, tmpVal);
+                    if (robust)
+                    {
+                        factor.At(ij, ij, 1.0);
+                    }
+                    else
+                    {
+                        tmpVal = Math.Sqrt(tmpVal);
+                        factor.At(ij, ij, tmpVal);
+                    }
+
                     tmpColumn[ij] = tmpVal;
 
                     // Calculate multipliers and copy to local column
                     // Current column, below the diagonal
                     for (var i = ij + 1; i < factor.RowCount; i++)
                     {
-                        factor.At(i, ij, factor.At(i, ij)/tmpVal);
+                        factor.At(i, ij, factor.At(i, ij) / tmpVal);
                         tmpColumn[i] = factor.At(i, ij);
                     }
 
                     // Remaining columns, below the diagonal
-                    DoCholeskyStep(factor, factor.RowCount, ij + 1, factor.RowCount, tmpColumn, Control.MaxDegreeOfParallelism);
+                    var d = robust ? tmpVal : 1.0;
+                    DoCholeskyStep(factor, factor.RowCount, ij + 1, factor.RowCount, d, tmpColumn, Control.MaxDegreeOfParallelism);
                 }
                 else
                 {
                     throw new ArgumentException(Resources.ArgumentMatrixPositiveDefinite);
+                }
+
+                if (robust)
+                {
+                    var sqrtD = Math.Sqrt(tmpVal);
+                    for (var i = ij; i < factor.RowCount; i++)
+                    {
+                        factor.At(i, ij, factor.At(i, ij) * sqrtD);
+                    }
                 }
 
                 for (var i = ij + 1; i < factor.RowCount; i++)
@@ -144,7 +169,7 @@ namespace MathNet.Numerics.LinearAlgebra.Double.Factorization
         /// <param name="colLimit">Total columns</param>
         /// <param name="multipliers">Multipliers calculated previously</param>
         /// <param name="availableCores">Number of available processors</param>
-        static void DoCholeskyStep(Matrix<double> data, int rowDim, int firstCol, int colLimit, double[] multipliers, int availableCores)
+        static void DoCholeskyStep(Matrix<double> data, int rowDim, int firstCol, int colLimit, double d, double[] multipliers, int availableCores)
         {
             var tmpColCount = colLimit - firstCol;
 
@@ -154,8 +179,8 @@ namespace MathNet.Numerics.LinearAlgebra.Double.Factorization
                 var tmpCores = availableCores/2;
 
                 CommonParallel.Invoke(
-                    () => DoCholeskyStep(data, rowDim, firstCol, tmpSplit, multipliers, tmpCores),
-                    () => DoCholeskyStep(data, rowDim, tmpSplit, colLimit, multipliers, tmpCores));
+                    () => DoCholeskyStep(data, rowDim, firstCol, tmpSplit, d, multipliers, tmpCores),
+                    () => DoCholeskyStep(data, rowDim, tmpSplit, colLimit, d, multipliers, tmpCores));
             }
             else
             {
@@ -164,7 +189,7 @@ namespace MathNet.Numerics.LinearAlgebra.Double.Factorization
                     var tmpVal = multipliers[j];
                     for (var i = j; i < rowDim; i++)
                     {
-                        data.At(i, j, data.At(i, j) - (multipliers[i]*tmpVal));
+                        data.At(i, j, data.At(i, j) - d * (multipliers[i]*tmpVal));
                     }
                 }
             }
