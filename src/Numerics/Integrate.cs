@@ -66,29 +66,29 @@ namespace MathNet.Numerics
         /// Approximates a 2-dimensional definite integral using an Nth order Gauss-Legendre rule over the rectangle [a,b] x [c,d].
         /// </summary>
         /// <param name="f">The 2-dimensional analytic smooth function to integrate.</param>
-        /// <param name="invervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
-        /// /// <param name="invervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
+        /// /// <param name="intervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
         /// <param name="order">Defines an Nth order Gauss-Legendre rule. The order also defines the number of abscissas and weights for the rule. Precomputed Gauss-Legendre abscissas/weights for orders 2-20, 32, 64, 96, 100, 128, 256, 512, 1024 are used, otherwise they're calculated on the fly.</param>
         /// <returns>Approximation of the finite integral in the given interval.</returns>
-        public static double OnRectangle(Func<double, double, double> f, double invervalBeginA, double invervalEndA, double invervalBeginB, double invervalEndB, int order)
+        public static double OnRectangle(Func<double, double, double> f, double intervalBeginA, double intervalEndA, double intervalBeginB, double intervalEndB, int order)
         {
-            return GaussLegendreRule.Integrate(f, invervalBeginA, invervalEndA, invervalBeginB, invervalEndB, order);
+            return GaussLegendreRule.Integrate(f, intervalBeginA, intervalEndA, intervalBeginB, intervalEndB, order);
         }
 
         /// <summary>
         /// Approximates a 2-dimensional definite integral using an Nth order Gauss-Legendre rule over the rectangle [a,b] x [c,d].
         /// </summary>
         /// <param name="f">The 2-dimensional analytic smooth function to integrate.</param>
-        /// <param name="invervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
-        /// /// <param name="invervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
+        /// /// <param name="intervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
         /// <returns>Approximation of the finite integral in the given interval.</returns>
-        public static double OnRectangle(Func<double, double, double> f, double invervalBeginA, double invervalEndA, double invervalBeginB, double invervalEndB)
+        public static double OnRectangle(Func<double, double, double> f, double intervalBeginA, double intervalEndA, double intervalBeginB, double intervalEndB)
         {
-            return GaussLegendreRule.Integrate(f, invervalBeginA, invervalEndA, invervalBeginB, invervalEndB, 32);
+            return GaussLegendreRule.Integrate(f, intervalBeginA, intervalEndA, intervalBeginB, intervalEndB, 32);
         }
     }
 }

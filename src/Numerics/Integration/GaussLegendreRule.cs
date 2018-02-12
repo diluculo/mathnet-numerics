@@ -104,7 +104,7 @@ namespace MathNet.Numerics.Integration
         }
 
         /// <summary>
-        /// Getter for the InvervalBegin.
+        /// Getter for the IntervalBegin.
         /// </summary>
         public double IntervalBegin
         {
@@ -115,7 +115,7 @@ namespace MathNet.Numerics.Integration
         }
 
         /// <summary>
-        /// Getter for the InvervalEnd.
+        /// Getter for the IntervalEnd.
         /// </summary>
         public double IntervalEnd
         {
@@ -129,11 +129,11 @@ namespace MathNet.Numerics.Integration
         /// Approximates a definite integral using an Nth order Gauss-Legendre rule.
         /// </summary>
         /// <param name="f">The analytic smooth function to integrate.</param>
-        /// <param name="invervalBegin">Where the interval starts, exclusive and finite.</param>
-        /// <param name="invervalEnd">Where the interval ends, exclusive and finite.</param>
+        /// <param name="intervalBegin">Where the interval starts, exclusive and finite.</param>
+        /// <param name="intervalEnd">Where the interval ends, exclusive and finite.</param>
         /// <param name="order">Defines an Nth order Gauss-Legendre rule. The order also defines the number of abscissas and weights for the rule. Precomputed Gauss-Legendre abscissas/weights for orders 2-20, 32, 64, 96, 100, 128, 256, 512, 1024 are used, otherwise they're calculated on the fly.</param>
         /// <returns>Approximation of the finite integral in the given interval.</returns>
-        public static double Integrate(Func<double, double> f, double invervalBegin, double invervalEnd, int order)
+        public static double Integrate(Func<double, double> f, double intervalBegin, double intervalEnd, int order)
         {
             GaussPoint gaussLegendrePoint = GaussLegendrePointFactory.GetGaussPoint(order);
 
@@ -141,8 +141,8 @@ namespace MathNet.Numerics.Integration
             int i;
             int m = (order + 1) >> 1;
 
-            double a = 0.5*(invervalEnd - invervalBegin);
-            double b = 0.5*(invervalEnd + invervalBegin);
+            double a = 0.5*(intervalEnd - intervalBegin);
+            double b = 0.5*(intervalEnd + intervalBegin);
 
             if (order.IsOdd())
             {
@@ -170,13 +170,13 @@ namespace MathNet.Numerics.Integration
         /// Approximates a 2-dimensional definite integral using an Nth order Gauss-Legendre rule over the rectangle [a,b] x [c,d].
         /// </summary>
         /// <param name="f">The 2-dimensional analytic smooth function to integrate.</param>
-        /// <param name="invervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
-        /// <param name="invervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
-        /// /// <param name="invervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginA">Where the interval starts for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalEndA">Where the interval ends for the first (inside) integral, exclusive and finite.</param>
+        /// <param name="intervalBeginB">Where the interval starts for the second (outside) integral, exclusive and finite.</param>
+        /// /// <param name="intervalEndB">Where the interval ends for the second (outside) integral, exclusive and finite.</param>
         /// <param name="order">Defines an Nth order Gauss-Legendre rule. The order also defines the number of abscissas and weights for the rule. Precomputed Gauss-Legendre abscissas/weights for orders 2-20, 32, 64, 96, 100, 128, 256, 512, 1024 are used, otherwise they're calculated on the fly.</param>
         /// <returns>Approximation of the finite integral in the given interval.</returns>
-        public static double Integrate(Func<double, double, double> f, double invervalBeginA, double invervalEndA, double invervalBeginB, double invervalEndB, int order)
+        public static double Integrate(Func<double, double, double> f, double intervalBeginA, double intervalEndA, double intervalBeginB, double intervalEndB, int order)
         {
             GaussPoint gaussLegendrePoint = GaussLegendrePointFactory.GetGaussPoint(order);
 
@@ -184,10 +184,10 @@ namespace MathNet.Numerics.Integration
             int i, j;
             int m = (order + 1) >> 1;
 
-            double a = 0.5*(invervalEndA - invervalBeginA);
-            double b = 0.5*(invervalEndA + invervalBeginA);
-            double c = 0.5*(invervalEndB - invervalBeginB);
-            double d = 0.5*(invervalEndB + invervalBeginB);
+            double a = 0.5*(intervalEndA - intervalBeginA);
+            double b = 0.5*(intervalEndA + intervalBeginA);
+            double c = 0.5*(intervalEndB - intervalBeginB);
+            double d = 0.5*(intervalEndB + intervalBeginB);
 
             if (order.IsOdd())
             {
