@@ -28,6 +28,7 @@
 // </copyright>
 
 using System;
+using System.Collections.Generic;
 using MathNet.Numerics.LinearAlgebra;
 using MathNet.Numerics.Optimization.ObjectiveFunctions;
 
@@ -92,6 +93,34 @@ namespace MathNet.Numerics.Optimization
         }
 
         /// <summary>
+        /// Objective function for non-linear least squares regression.
+        /// </summary>
+        public static IObjectiveFunction Jacobian(Func<Vector<double>, Vector<double>, Vector<double>> function, Func<Vector<double>, Vector<double>, Matrix<double>> jacobian,
+            Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null,
+            Vector<double> lowerBound = null, Vector<double> upperBound = null, Vector<double> scales = null, List<bool> isFixed = null)
+        {
+            var objective = new JacobianObjectiveFunction(function, jacobian);
+            objective.SetObserved(observedX, observedY, weight);
+            objective.SetParameters(lowerBound, upperBound, scales, isFixed);
+            return objective;
+        }
+
+        /// <summary>
+        /// Objective function for non-linear least squares regression.
+        /// The numerical Jacobian with accuracy order is used.
+        /// </summary>
+        public static IObjectiveFunction Jacobian(Func<Vector<double>, Vector<double>, Vector<double>> function, 
+            Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null,
+            Vector<double> lowerBound = null, Vector<double> upperBound = null, Vector<double> scales = null, List<bool> isFixed = null,
+            int accuracyOrder = 2)
+        {
+            var objective = new JacobianObjectiveFunction(function, null, accuracyOrder: accuracyOrder);
+            objective.SetObserved(observedX, observedY, weight);
+            objective.SetParameters(lowerBound, upperBound, scales, isFixed);
+            return objective;
+        }
+
+        /// <summary>
         /// Objective function where neither first nor second derivative is available.
         /// </summary>
         public static IScalarObjectiveFunction ScalarValue(Func<double, double> function)
@@ -113,6 +142,6 @@ namespace MathNet.Numerics.Optimization
         public static IScalarObjectiveFunction ScalarSecondDerivative(Func<double, double> function, Func<double, double> derivative, Func<double,double> secondDerivative)
         {
             return new ScalarObjectiveFunction(function, derivative, secondDerivative);
-        }
+        }        
     }
 }

@@ -31,17 +31,17 @@ namespace MathNet.Numerics.Optimization
         /// <summary>
         /// The maximum number of iterations.
         /// </summary>
-        public int MaxIterations { get; set; }
+        public int MaximumIterations { get; set; }
 
         #endregion Tolerances and options
 
-        public LevenbergMarquardtMinimizer(double initialMu = 1E-3, double gradientTolerance = 1E-18, double stepTolerance = 1E-18, double functionTolerance = 1E-18, int maxIterations = -1)
+        public LevenbergMarquardtMinimizer(double initialMu = 1E-3, double gradientTolerance = 1E-18, double stepTolerance = 1E-18, double functionTolerance = 1E-18, int maximumIterations = -1)
         {
             InitialMu = initialMu;
             GradientTolerance = gradientTolerance;
             StepTolerance = stepTolerance;
             FunctionTolerance = functionTolerance;
-            MaxIterations = maxIterations;
+            MaximumIterations = maximumIterations;
         }
 
         public MinimizationResult FindMinimum(IObjectiveFunction objective, Vector<double> initialGuess)
@@ -51,7 +51,7 @@ namespace MathNet.Numerics.Optimization
             if (initialGuess == null)
                 throw new ArgumentNullException("initialGuess");
 
-            return Minimum(objective, initialGuess, InitialMu, FunctionTolerance, GradientTolerance, StepTolerance, MaxIterations);
+            return Minimum(objective, initialGuess, InitialMu, FunctionTolerance, GradientTolerance, StepTolerance, MaximumIterations);
         }
 
         public MinimizationResult FindMinimum(IObjectiveFunction objective, double[] initialGuess)
@@ -61,7 +61,7 @@ namespace MathNet.Numerics.Optimization
             if (initialGuess == null)
                 throw new ArgumentNullException("initialGuess");
 
-            return Minimum(objective, CreateVector.DenseOfArray<double>(initialGuess), InitialMu, GradientTolerance, StepTolerance, FunctionTolerance, MaxIterations);
+            return Minimum(objective, CreateVector.DenseOfArray<double>(initialGuess), InitialMu, GradientTolerance, StepTolerance, FunctionTolerance, MaximumIterations);
         }
 
         /// <summary>
@@ -73,9 +73,9 @@ namespace MathNet.Numerics.Optimization
         /// <param name="gradientTolerance">The stopping threshold for infinity norm of the gradient vector.</param>
         /// <param name="stepTolerance">The stopping threshold for L2 norm of the change of parameters.</param>
         /// <param name="functionTolerance">The stopping threshold for L2 norm of the residuals.</param>
-        /// <param name="maxIterations">The max iterations.</param>
+        /// <param name="maximumIterations">The max iterations.</param>
         /// <returns>The result of the Levenberg-Marquardt minimization</returns>
-        public static MinimizationResult Minimum(IObjectiveFunction objective, Vector<double> initialGuess, double initialMu = 1E-3, double gradientTolerance = 1E-18, double stepTolerance = 1E-18, double functionTolerance = 1E-18, int maxIterations = -1)
+        public static MinimizationResult Minimum(IObjectiveFunction objective, Vector<double> initialGuess, double initialMu = 1E-3, double gradientTolerance = 1E-18, double stepTolerance = 1E-18, double functionTolerance = 1E-18, int maximumIterations = -1)
         {
             // Non-linear least square fitting by Levenberg-Marduardt algorithm.
             //
@@ -123,24 +123,24 @@ namespace MathNet.Numerics.Optimization
 
             if (initialGuess == null)
                 throw new ArgumentNullException("initialGuess");
-            if (initialGuess.Count != objective.Point.Count)
-                throw new ArgumentException("The initial guess can't have different size from parameters.");
+            //if (initialGuess.Count != objective.Point.Count)
+            //    throw new ArgumentException("The initial guess can't have different size from parameters.");
 
             ExitCondition exitCondition = ExitCondition.None;
 
             // First, calculate function values and setup variables
             objective.EvaluateAt(initialGuess);
             var P = objective.Point; // current parameters
-            var Pstep = P.Clone(); Pstep.Clear(); // the change of parameters    
+            var Pstep = Vector<double>.Build.Dense(P.Count); // the change of parameters    
             var RSS = objective.Value; // Residual Sum of Squares = R'R
             var RSSinit = RSS; // RSS at initial gussing parameters
 
-            if (maxIterations < 0)
+            if (maximumIterations < 0)
             {
-                maxIterations = 200 * (initialGuess.Count + 1);
+                maximumIterations = 200 * (initialGuess.Count + 1);
             }
 
-            if (maxIterations == 0)
+            if (maximumIterations == 0)
             {
                 return new MinimizationResult(objective, -1, exitCondition);
             }
@@ -177,7 +177,7 @@ namespace MathNet.Numerics.Optimization
             double mu = initialMu * diagonalOfHessian.Max(); // μ 
             double nu = 2; //  ν
             int iterations = 0;
-            while (iterations < maxIterations && exitCondition == ExitCondition.None)
+            while (iterations < maximumIterations && exitCondition == ExitCondition.None)
             {
                 iterations++;
 
@@ -240,7 +240,6 @@ namespace MathNet.Numerics.Optimization
                         mu = mu * Math.Max(1.0 / 3.0, 1.0 - Math.Pow(2.0 * rho - 1.0, 3));
                         nu = 2;
 
-                        RSS = RSSnew;
                         break;
                     }
                     else
@@ -254,7 +253,7 @@ namespace MathNet.Numerics.Optimization
                 }
             }
 
-            if (iterations >= maxIterations)
+            if (iterations >= maximumIterations)
             {
                 exitCondition = ExitCondition.ExceedIterations;
             }
