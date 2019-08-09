@@ -198,6 +198,7 @@ namespace MathNet.Numerics.Optimization
 
         /// <summary>
         /// Objective function with a user supplied jacobian for nonlinear least squares regression.
+        /// If some of parameters are fixed, set their derivative columns zero.
         /// </summary>
         public static IObjectiveFunction NonlinearFunction(Func<Vector<double>, Vector<double>, Vector<double>> function,
             Func<Vector<double>, Vector<double>, Matrix<double>> derivatives,
