@@ -112,7 +112,7 @@ namespace MathNet.Numerics.UnitTests.OptimizationTests
         public void Rosenbrock_LBfgs_Dif()
         {
             var obj = ObjectiveFunction.NonlinearFunction(RosenbrockModel, RosenbrockX, RosenbrockY, accuracyOrder: 6);
-            var solver = new LimitedMemoryBfgsMinimizer(1e-8, 1e-8, 1e-8, 1000);
+            var solver = new LimitedMemoryBfgsMinimizer(1e-8, 1e-8, 1e-8, 5, 1000);
             var result = solver.FindMinimum(obj, RosenbrockStart1);
 
             for (int i = 0; i < result.MinimizingPoint.Count; i++)
@@ -218,7 +218,7 @@ namespace MathNet.Numerics.UnitTests.OptimizationTests
         public void Rat43_LBfgs_Dif()
         {
             var obj = ObjectiveFunction.NonlinearFunction(Rat43Model, Rat43X, Rat43Y, accuracyOrder: 6);
-            var solver = new LimitedMemoryBfgsMinimizer(1e-10, 1e-10, 1e-10, 1000);
+            var solver = new LimitedMemoryBfgsMinimizer(1e-10, 1e-10, 1e-10, 5, 1000);
             var result = solver.FindMinimum(obj, Rat43Start2);
 
             for (int i = 0; i < result.MinimizingPoint.Count; i++)
@@ -608,7 +608,7 @@ namespace MathNet.Numerics.UnitTests.OptimizationTests
         public void Thurber_LBfgs_Dif()
         {
             var obj = ObjectiveFunction.NonlinearFunction(ThurberModel, ThurberX, ThurberY, accuracyOrder: 6);
-            var solver = new LimitedMemoryBfgsMinimizer(1e-10, 1e-10, 1e-10, 1000);
+            var solver = new LimitedMemoryBfgsMinimizer(1e-10, 1e-10, 1e-10, 10, 1000);
             var result = solver.FindMinimum(obj, ThurberStart);
 
             for (int i = 0; i < result.MinimizingPoint.Count; i++)
