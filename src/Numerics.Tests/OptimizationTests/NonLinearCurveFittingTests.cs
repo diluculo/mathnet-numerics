@@ -660,6 +660,36 @@ namespace MathNet.Numerics.Tests.OptimizationTests
             {
                 AssertHelpers.AlmostEqualRelative(PollutionBest[i], result.MinimizingPoint[i], 4);
             }
+
+            // Check statistics
+            AssertHelpers.AlmostEqualRelative(0.908, result.RSquared, 2);
+            AssertHelpers.AlmostEqualRelative(0.885, result.AdjustedRSquared, 2);
+            AssertHelpers.AlmostEqualRelative(24.0096, result.StandardError, 2);
+
+            // Check parameter statistics (using expected values)
+            var expectedStdErrors = new double[] { 10.7, 0.064296 };
+            var expectedTStats = new double[] { 21.045, 6.2333 };
+            var expectedPValues = new double[] { 3.0134e-05, 0.0033745 };
+            // Expected confidence interval bounds
+            var expectedCI = new double[,]
+                {
+                    { 195.4650, 254.8788 },
+                    { 0.2223, 0.5793 }
+                };
+
+            for (var i = 0; i < result.MinimizingPoint.Count; i++)
+            {
+                AssertHelpers.AlmostEqualRelative(expectedStdErrors[i], result.StandardErrors[i], 3);
+                AssertHelpers.AlmostEqualRelative(expectedTStats[i], result.TStatistics[i], 3);
+                AssertHelpers.AlmostEqualRelative(expectedPValues[i], result.PValues[i], 3);
+
+                // Calculate and check confidence interval bounds
+                var lowerBound = result.MinimizingPoint[i] - result.ConfidenceIntervalHalfWidths[i];
+                var upperBound = result.MinimizingPoint[i] + result.ConfidenceIntervalHalfWidths[i];
+
+                AssertHelpers.AlmostEqualRelative(expectedCI[i, 0], lowerBound, 3);
+                AssertHelpers.AlmostEqualRelative(expectedCI[i, 1], upperBound, 3);
+            }
         }
 
         #endregion Weighted Nonlinear Regression
