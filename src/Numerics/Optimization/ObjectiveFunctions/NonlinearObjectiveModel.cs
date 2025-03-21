@@ -170,14 +170,14 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         /// </summary>
         /// <param name="residualFunction">Function that directly calculates residuals from parameters</param>
         /// <param name="jacobian">Optional Jacobian of residual function</param>
-        /// <param name="accuracyOrder">Accuracy order for numerical differentiation (1-6)</param>
         /// <param name="observationCount">Number of observations for degree of freedom calculation. If not provided, 
         /// will use the length of residual vector, which may not be appropriate for all statistical calculations.</param>
+        /// <param name="accuracyOrder">Accuracy order for numerical differentiation (1-6)</param>
         public NonlinearObjectiveModel(
             Func<Vector<double>, Vector<double>> residualFunction,
             Func<Vector<double>, Matrix<double>> jacobian = null,
-            int accuracyOrder = 2,
-            int? observationCount = null)
+            int? observationCount = null,
+            int accuracyOrder = 2)
         {
             _residualFunction = residualFunction ?? throw new ArgumentNullException(nameof(residualFunction));
             _residualJacobian = jacobian;
@@ -191,7 +191,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         {
             if (_useDirectResiduals)
             {
-                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _accuracyOrder, _observationCount)
+                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _observationCount, _accuracyOrder)
                 {
                     _coefficients = _coefficients,
                     _hasFunctionValue = _hasFunctionValue,
@@ -230,11 +230,21 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         {
             if (_useDirectResiduals)
             {
-                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _accuracyOrder, _observationCount);
+                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _observationCount, _accuracyOrder)
+                {
+                    IsFixed = IsFixed
+                };
             }
             else
             {
-                return new NonlinearObjectiveModel(_modelFunction, _modelDerivative, _accuracyOrder);
+                return new NonlinearObjectiveModel(_modelFunction, _modelDerivative, _accuracyOrder)
+                {
+                    ObservedX = ObservedX,
+                    ObservedY = ObservedY,
+                    Weights = Weights,
+                    L = L,                                        
+                    IsFixed = IsFixed
+                };
             }
         }
 
@@ -457,6 +467,8 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         /// </summary>
         void EvaluateJacobian()
         {
+            var evaluations = 0;
+
             if (_coefficients == null)
             {
                 throw new InvalidOperationException("Cannot evaluate Jacobian: current parameters is not set.");
@@ -473,7 +485,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else
                 {
                     // Calculate Jacobian numerically for residual function
-                    _jacobianValue = NumericalJacobianForResidual(Point, out var evaluations);
+                    _jacobianValue = NumericalJacobianForResidual(Point, out evaluations);
                     FunctionEvaluations += evaluations;
                 }
             }
@@ -489,7 +501,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else
                 {
                     // numerical jacobian
-                    _jacobianValue = NumericalJacobian(Point, out var evaluations);
+                    _jacobianValue = NumericalJacobian(Point, out evaluations);
                     FunctionEvaluations += evaluations;
                 }
 
@@ -537,7 +549,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 _gradientValue = -_jacobianValue.Transpose() * _residuals;
             }
 
-            // approximated Hessian, H = J'WJ + ∑LRiHi ~ J'WJ near the minimum
+            // approximated Hessian, H = J'J + ∑Ri∇²Ri ~ J'J near the minimum
             _hessianValue = _jacobianValue.Transpose() * _jacobianValue;
         }
 
@@ -606,7 +618,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
 
             var derivatives = Matrix<double>.Build.Dense(residualSize, NumberOfParameters);
             evaluationCount = 0;
-            int totalEvaluations = 0;
+            var totalEvaluations = 0;
 
             // Process each residual component separately
             for (var i = 0; i < residualSize; i++)

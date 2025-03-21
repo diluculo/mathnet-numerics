@@ -245,7 +245,7 @@ namespace MathNet.Numerics.Optimization
             int? observationCount = null,
             int accuracyOrder = 2)
         {
-            return new NonlinearObjectiveModel(residualFunction, jacobian, accuracyOrder, observationCount);
+            return new NonlinearObjectiveModel(residualFunction, jacobian, observationCount, accuracyOrder);
         }
 
         /// <summary>
@@ -303,7 +303,7 @@ namespace MathNet.Numerics.Optimization
             int? observationCount = null,
             int accuracyOrder = 2)
         {
-            var objective = new NonlinearObjectiveModel(residualFunction, jacobian, accuracyOrder, observationCount);
+            var objective = new NonlinearObjectiveModel(residualFunction, jacobian, observationCount, accuracyOrder);
             return objective.ToObjectiveFunction();
         }
     }
