@@ -57,7 +57,10 @@ namespace MathNet.Numerics.Optimization
                 return;
             }
 
-            Covariance = Hessian.PseudoInverse() * objective.Value / objective.DegreeOfFreedom;
+            // The factor of 2.0 compensates for the 1/2 factor in the objective function definition
+            // F(p) = 1/2 * ∑{ Wi * (yi - f(xi; p))^2 }
+            // Without this compensation, the covariance and standard errors would be underestimated by a factor of 2
+            Covariance = 2.0 * Hessian.PseudoInverse() * objective.Value / objective.DegreeOfFreedom;
 
             if (Covariance != null)
             {
