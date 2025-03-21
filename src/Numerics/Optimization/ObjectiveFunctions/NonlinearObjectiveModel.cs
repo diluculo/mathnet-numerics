@@ -5,12 +5,45 @@ using System.Linq;
 
 namespace MathNet.Numerics.Optimization.ObjectiveFunctions
 {
-    internal class NonlinearObjectiveFunction : IObjectiveModel
+    /// <summary>
+    /// Nonlinear objective model for optimization problems.
+    /// Can be initialized in two ways:
+    /// 1. With a model modelFunction f(x;p) and observed data (x,y) for curve fitting
+    /// 2. With a direct residual modelFunction R(p) for general minimization problems
+    /// </summary>
+    internal class NonlinearObjectiveModel : IObjectiveModel
     {
         #region Private Variables
 
-        readonly Func<Vector<double>, Vector<double>, Vector<double>> _userFunction; // (p, x) => f(x; p)
-        readonly Func<Vector<double>, Vector<double>, Matrix<double>> _userDerivative; // (p, x) => df(x; p)/dp
+        /// <summary>
+        /// The model modelFunction: f(x; p) that maps x to y given parameters p
+        /// Null if using direct residual modelFunction mode
+        /// </summary>
+        readonly Func<Vector<double>, Vector<double>, Vector<double>> _modelFunction; // (p, x) => f(x; p)
+
+        /// <summary>
+        /// The derivative of model modelFunction with respect to parameters
+        /// Null if using direct residual modelFunction mode or if derivative not provided
+        /// </summary>
+        readonly Func<Vector<double>, Vector<double>, Matrix<double>> _modelDerivative; // (p, x) => df(x; p)/dp
+
+        /// <summary>
+        /// The direct residual modelFunction: R(p) that calculates residuals directly from parameters
+        /// Null if using model modelFunction mode
+        /// </summary>
+        readonly Func<Vector<double>, Vector<double>> _residualFunction; // p => R(p)
+
+        /// <summary>
+        /// The Jacobian of the direct residual modelFunction
+        /// Null if using model modelFunction mode or if Jacobian not provided
+        /// </summary>
+        readonly Func<Vector<double>, Matrix<double>> _residualJacobian; // p => dR(p)/dp
+
+        /// <summary>
+        /// Flag indicating whether we're using direct residual modelFunction mode
+        /// </summary>
+        readonly bool _useDirectResiduals;
+
         readonly int _accuracyOrder; // the desired accuracy order to evaluate the jacobian by numerical approximaiton.
 
         Vector<double> _coefficients;
@@ -23,6 +56,11 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         Matrix<double> _jacobianValue; // the Jacobian matrix.
         Vector<double> _gradientValue; // the Gradient vector.
         Matrix<double> _hessianValue; // the Hessian matrix.
+
+        /// <summary>
+        /// Number of observations for direct residual mode
+        /// </summary>
+        readonly int? _observationCount;
 
         #endregion Private Variables
 
@@ -51,17 +89,39 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
 
         /// <summary>
         /// Get the number of observations.
+        /// For direct residual mode, returns the explicitly provided observation count.
+        /// If not provided and residuals are available, uses the residual vector length.
         /// </summary>
-        public int NumberOfObservations => ObservedY?.Count ?? 0;
+        public int NumberOfObservations
+        {
+            get
+            {
+                if (_useDirectResiduals)
+                {
+                    // If observation count was explicitly provided, use it
+                    if (_observationCount.HasValue)
+                        return _observationCount.Value;
+
+                    // Otherwise, if we have calculated residuals, use their count
+                    if (_residuals != null)
+                        return _residuals.Count;
+
+                    // If neither is available, return 0
+                    return 0;
+                }
+                else
+                {
+                    return ObservedY?.Count ?? 0;
+                }
+            }
+        }
 
         /// <summary>
         /// Get the number of unknown parameters.
         /// </summary>
         public int NumberOfParameters => Point?.Count ?? 0;
 
-        /// <summary>
-        /// Get the degree of freedom
-        /// </summary>
+        /// <inheritdoc/>
         public int DegreeOfFreedom
         {
             get
@@ -76,7 +136,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         }
 
         /// <summary>
-        /// Get the number of calls to function.
+        /// Get the number of calls to modelFunction.
         /// </summary>
         public int FunctionEvaluations { get; set; }
 
@@ -87,37 +147,94 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
 
         #endregion Public Variables
 
-        public NonlinearObjectiveFunction(Func<Vector<double>, Vector<double>, Vector<double>> function,
-            Func<Vector<double>, Vector<double>, Matrix<double>> derivative = null, int accuracyOrder = 2)
+        /// <summary>
+        /// Initializes a new instance using a model modelFunction f(x;p) for curve fitting
+        /// </summary>
+        /// <param name="modelFunction">The model modelFunction f(x;p) that predicts y values</param>
+        /// <param name="derivative">Optional derivative modelFunction of the model</param>
+        /// <param name="accuracyOrder">Accuracy order for numerical differentiation (1-6)</param>
+        public NonlinearObjectiveModel(
+            Func<Vector<double>, Vector<double>, Vector<double>> modelFunction,
+            Func<Vector<double>, Vector<double>, Matrix<double>> derivative = null,
+            int accuracyOrder = 2)
         {
-            _userFunction = function;
-            _userDerivative = derivative;
+            _modelFunction = modelFunction;
+            _modelDerivative = derivative;
+            _useDirectResiduals = false;
             _accuracyOrder = Math.Min(6, Math.Max(1, accuracyOrder));
         }
 
-        public IObjectiveModel Fork()
+        /// <summary>
+        /// Initializes a new instance using a direct residual function R(p)
+        /// </summary>
+        /// <param name="residualFunction">Function that directly calculates residuals from parameters</param>
+        /// <param name="jacobian">Optional Jacobian of residual function</param>
+        /// <param name="accuracyOrder">Accuracy order for numerical differentiation (1-6)</param>
+        /// <param name="observationCount">Number of observations for degree of freedom calculation. If not provided, 
+        /// will use the length of residual vector, which may not be appropriate for all statistical calculations.</param>
+        public NonlinearObjectiveModel(
+            Func<Vector<double>, Vector<double>> residualFunction,
+            Func<Vector<double>, Matrix<double>> jacobian = null,
+            int accuracyOrder = 2,
+            int? observationCount = null)
         {
-            return new NonlinearObjectiveFunction(_userFunction, _userDerivative, _accuracyOrder)
-            {
-                ObservedX = ObservedX,
-                ObservedY = ObservedY,
-                Weights = Weights,
-
-                _coefficients = _coefficients,
-
-                _hasFunctionValue = _hasFunctionValue,
-                _functionValue = _functionValue,
-
-                _hasJacobianValue = _hasJacobianValue,
-                _jacobianValue = _jacobianValue,
-                _gradientValue = _gradientValue,
-                _hessianValue = _hessianValue
-            };
+            _residualFunction = residualFunction ?? throw new ArgumentNullException(nameof(residualFunction));
+            _residualJacobian = jacobian;
+            _useDirectResiduals = true;
+            _accuracyOrder = Math.Min(6, Math.Max(1, accuracyOrder));
+            _observationCount = observationCount;
         }
 
+        /// <inheritdoc/>
+        public IObjectiveModel Fork()
+        {
+            if (_useDirectResiduals)
+            {
+                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _accuracyOrder, _observationCount)
+                {
+                    _coefficients = _coefficients,
+                    _hasFunctionValue = _hasFunctionValue,
+                    _functionValue = _functionValue,
+                    _residuals = _residuals,
+                    _hasJacobianValue = _hasJacobianValue,
+                    _jacobianValue = _jacobianValue,
+                    _gradientValue = _gradientValue,
+                    _hessianValue = _hessianValue,
+                    IsFixed = IsFixed
+                };
+            }
+            else
+            {
+                return new NonlinearObjectiveModel(_modelFunction, _modelDerivative, _accuracyOrder)
+                {
+                    ObservedX = ObservedX,
+                    ObservedY = ObservedY,
+                    Weights = Weights,
+                    L = L,
+                    _coefficients = _coefficients,
+                    _hasFunctionValue = _hasFunctionValue,
+                    _functionValue = _functionValue,
+                    _residuals = _residuals,
+                    _hasJacobianValue = _hasJacobianValue,
+                    _jacobianValue = _jacobianValue,
+                    _gradientValue = _gradientValue,
+                    _hessianValue = _hessianValue,
+                    IsFixed = IsFixed
+                };
+            }
+        }
+
+        /// <inheritdoc/>
         public IObjectiveModel CreateNew()
         {
-            return new NonlinearObjectiveFunction(_userFunction, _userDerivative, _accuracyOrder);
+            if (_useDirectResiduals)
+            {
+                return new NonlinearObjectiveModel(_residualFunction, _residualJacobian, _accuracyOrder, _observationCount);
+            }
+            else
+            {
+                return new NonlinearObjectiveModel(_modelFunction, _modelDerivative, _accuracyOrder);
+            }
         }
 
         /// <summary>
@@ -131,8 +248,22 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
         public Vector<double> ModelValues { get; private set; }
 
         /// <summary>
-        /// Get the residual sum of squares.
+        /// Get the residual values at the current parameters.
         /// </summary>
+        public Vector<double> Residuals
+        {
+            get
+            {
+                if (!_hasFunctionValue)
+                {
+                    EvaluateFunction();
+                    _hasFunctionValue = true;
+                }
+                return _residuals;
+            }
+        }
+
+        /// <inheritdoc/>
         public double Value
         {
             get
@@ -146,9 +277,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             }
         }
 
-        /// <summary>
-        /// Get the Gradient vector of x and p.
-        /// </summary>
+        /// <inheritdoc/>
         public Vector<double> Gradient
         {
             get
@@ -162,9 +291,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             }
         }
 
-        /// <summary>
-        /// Get the Hessian matrix of x and p, J'WJ
-        /// </summary>
+        /// <inheritdoc/>
         public Matrix<double> Hessian
         {
             get
@@ -178,14 +305,23 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             }
         }
 
+        /// <inheritdoc/>
         public bool IsGradientSupported => true;
+
+        /// <inheritdoc/>
         public bool IsHessianSupported => true;
 
         /// <summary>
         /// Set observed data to fit.
+        /// Only applicable when using model function mode.
         /// </summary>
         public void SetObserved(Vector<double> observedX, Vector<double> observedY, Vector<double> weights = null)
         {
+            if (_useDirectResiduals)
+            {
+                throw new InvalidOperationException("Cannot set observed data when using direct residual function mode.");
+            }
+
             if (observedX == null || observedY == null)
             {
                 throw new ArgumentNullException("The data set can't be null.");
@@ -223,11 +359,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 : Weights.Diagonal().PointwiseSqrt();
         }
 
-        /// <summary>
-        /// Set parameters and bounds.
-        /// </summary>
-        /// <param name="initialGuess">The initial values of parameters.</param>
-        /// <param name="isFixed">The list to the parameters fix or free.</param>
+        /// <inheritdoc/>
         public void SetParameters(Vector<double> initialGuess, List<bool> isFixed = null)
         {
             _coefficients = initialGuess ?? throw new ArgumentNullException(nameof(initialGuess));
@@ -243,13 +375,14 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             IsFixed = isFixed;
         }
 
+        /// <inheritdoc/>
         public void EvaluateAt(Vector<double> parameters)
         {
             if (parameters == null)
             {
                 throw new ArgumentNullException(nameof(parameters));
             }
-            if (parameters.Count(p => double.IsNaN(p) || double.IsInfinity(p)) > 0)
+            if (parameters.Any(p => double.IsNaN(p) || double.IsInfinity(p)))
             {
                 throw new ArgumentException("The parameters must be finite.");
             }
@@ -263,6 +396,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             _hessianValue = null;
         }
 
+        /// <inheritdoc/>
         public IObjectiveFunction ToObjectiveFunction()
         {
             (double, Vector<double>, Matrix<double>) Function(Vector<double> point)
@@ -277,54 +411,107 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
 
         #region Private Methods
 
+        /// <summary>
+        /// Evaluates the objective function at the current parameter values.
+        /// </summary>
         void EvaluateFunction()
         {
-            // Calculates the residuals, (y[i] - f(x[i]; p)) * L[i]
-            if (ModelValues == null)
+            if (_coefficients == null)
             {
-                ModelValues = Vector<double>.Build.Dense(NumberOfObservations);
+                throw new InvalidOperationException("Cannot evaluate function: current parameters is not set.");
             }
-            ModelValues = _userFunction(Point, ObservedX);
-            FunctionEvaluations++;
 
-            // calculate the weighted residuals
-            _residuals = (Weights == null)
-                ? ObservedY - ModelValues
-                : (ObservedY - ModelValues).PointwiseMultiply(L);
+            if (_useDirectResiduals)
+            {
+                // Direct residual mode: calculate residuals directly from parameters
+                _residuals = _residualFunction(Point);
+                FunctionEvaluations++;
+            }
+            else
+            {
+                // Model function mode: calculate residuals from model predictions and observed data
+                if (ModelValues == null)
+                {
+                    ModelValues = Vector<double>.Build.Dense(NumberOfObservations);
+                }
 
-            // Calculate the residual sum of squares
-            _functionValue = _residuals.DotProduct(_residuals);
+                ModelValues = _modelFunction(Point, ObservedX);
+                FunctionEvaluations++;
+
+                // calculate the weighted residuals
+                _residuals = (Weights == null)
+                    ? ObservedY - ModelValues
+                    : (ObservedY - ModelValues).PointwiseMultiply(L);
+            }
+
+            // Calculate the residual sum of squares with 1/2 factor
+            // F(p) = 1/2 * ∑(residuals²)
+            _functionValue = 0.5 * _residuals.DotProduct(_residuals);
         }
 
         void EvaluateJacobian()
         {
-            // Calculates the jacobian of x and p.
-            if (_userDerivative != null)
+            if (_coefficients == null)
             {
-                // analytical jacobian
-                _jacobianValue = _userDerivative(Point, ObservedX);
-                JacobianEvaluations++;
+                throw new InvalidOperationException("Cannot evaluate Jacobian: current parameters is not set.");
+            }
+
+            if (_useDirectResiduals)
+            {
+                // Direct residual mode: use provided Jacobian or calculate numerically
+                if (_residualJacobian != null)
+                {
+                    _jacobianValue = _residualJacobian(Point);
+                    JacobianEvaluations++;
+                }
+                else
+                {
+                    // Calculate Jacobian numerically for residual function
+                    _jacobianValue = NumericalJacobianForResidual(Point);
+                    FunctionEvaluations += _accuracyOrder * NumberOfParameters;
+                }
             }
             else
             {
-                // numerical jacobian
-                _jacobianValue = NumericalJacobian(Point, ModelValues, _accuracyOrder);
-                FunctionEvaluations += _accuracyOrder;
+                // Model function mode: use provided derivative or calculate numerically
+                if (_modelDerivative != null)
+                {
+                    // analytical jacobian
+                    _jacobianValue = _modelDerivative(Point, ObservedX);
+                    JacobianEvaluations++;
+                }
+                else
+                {
+                    // numerical jacobian
+                    _jacobianValue = NumericalJacobian(Point, ModelValues, _accuracyOrder);
+                    FunctionEvaluations += _accuracyOrder * NumberOfParameters;
+                }
+
+                // Apply weights to jacobian in model function mode
+                if (Weights != null)
+                {
+                    for (var i = 0; i < NumberOfObservations; i++)
+                    {
+                        for (var j = 0; j < NumberOfParameters; j++)
+                        {
+                            _jacobianValue[i, j] = _jacobianValue[i, j] * L[i];
+                        }
+                    }
+                }
             }
 
-            // weighted jacobian
-            for (int i = 0; i < NumberOfObservations; i++)
+            // Apply fixed parameters to jacobian
+            if (IsFixed != null)
             {
-                for (int j = 0; j < NumberOfParameters; j++)
+                for (var j = 0; j < NumberOfParameters; j++)
                 {
-                    if (IsFixed != null && IsFixed[j])
+                    if (IsFixed[j])
                     {
                         // if j-th parameter is fixed, set J[i, j] = 0
-                        _jacobianValue[i, j] = 0.0;
-                    }
-                    else if (Weights != null)
-                    {
-                        _jacobianValue[i, j] = _jacobianValue[i, j] * L[i];
+                        for (var i = 0; i < _jacobianValue.RowCount; i++)
+                        {
+                            _jacobianValue[i, j] = 0.0;
+                        }
                     }
                 }
             }
@@ -336,28 +523,35 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             _hessianValue = _jacobianValue.Transpose() * _jacobianValue;
         }
 
+        /// <summary>
+        /// Calculate numerical Jacobian for model function using finite differences
+        /// </summary>
+        /// <param name="parameters">Current parameter values</param>
+        /// <param name="currentValues">Current model values at the parameters</param>
+        /// <param name="accuracyOrder">Order of accuracy for finite difference formula</param>
+        /// <returns>Jacobian matrix of partial derivatives</returns>
         Matrix<double> NumericalJacobian(Vector<double> parameters, Vector<double> currentValues, int accuracyOrder = 2)
         {
             const double sqrtEpsilon = 1.4901161193847656250E-8; // sqrt(machineEpsilon)
 
-            Matrix<double> derivertives = Matrix<double>.Build.Dense(NumberOfObservations, NumberOfParameters);
+            var derivertives = Matrix<double>.Build.Dense(NumberOfObservations, NumberOfParameters);
 
             var d = 0.000003 * parameters.PointwiseAbs().PointwiseMaximum(sqrtEpsilon);
 
             var h = Vector<double>.Build.Dense(NumberOfParameters);
-            for (int j = 0; j < NumberOfParameters; j++)
+            for (var j = 0; j < NumberOfParameters; j++)
             {
                 h[j] = d[j];
 
                 if (accuracyOrder >= 6)
                 {
                     // f'(x) = {- f(x - 3h) + 9f(x - 2h) - 45f(x - h) + 45f(x + h) - 9f(x + 2h) + f(x + 3h)} / 60h + O(h^6)
-                    var f1 = _userFunction(parameters - 3 * h, ObservedX);
-                    var f2 = _userFunction(parameters - 2 * h, ObservedX);
-                    var f3 = _userFunction(parameters - h, ObservedX);
-                    var f4 = _userFunction(parameters + h, ObservedX);
-                    var f5 = _userFunction(parameters + 2 * h, ObservedX);
-                    var f6 = _userFunction(parameters + 3 * h, ObservedX);
+                    var f1 = _modelFunction(parameters - 3 * h, ObservedX);
+                    var f2 = _modelFunction(parameters - 2 * h, ObservedX);
+                    var f3 = _modelFunction(parameters - h, ObservedX);
+                    var f4 = _modelFunction(parameters + h, ObservedX);
+                    var f5 = _modelFunction(parameters + 2 * h, ObservedX);
+                    var f6 = _modelFunction(parameters + 3 * h, ObservedX);
 
                     var prime = (-f1 + 9 * f2 - 45 * f3 + 45 * f4 - 9 * f5 + f6) / (60 * h[j]);
                     derivertives.SetColumn(j, prime);
@@ -366,11 +560,11 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 {
                     // f'(x) = {-137f(x) + 300f(x + h) - 300f(x + 2h) + 200f(x + 3h) - 75f(x + 4h) + 12f(x + 5h)} / 60h + O(h^5)
                     var f1 = currentValues;
-                    var f2 = _userFunction(parameters + h, ObservedX);
-                    var f3 = _userFunction(parameters + 2 * h, ObservedX);
-                    var f4 = _userFunction(parameters + 3 * h, ObservedX);
-                    var f5 = _userFunction(parameters + 4 * h, ObservedX);
-                    var f6 = _userFunction(parameters + 5 * h, ObservedX);
+                    var f2 = _modelFunction(parameters + h, ObservedX);
+                    var f3 = _modelFunction(parameters + 2 * h, ObservedX);
+                    var f4 = _modelFunction(parameters + 3 * h, ObservedX);
+                    var f5 = _modelFunction(parameters + 4 * h, ObservedX);
+                    var f6 = _modelFunction(parameters + 5 * h, ObservedX);
 
                     var prime = (-137 * f1 + 300 * f2 - 300 * f3 + 200 * f4 - 75 * f5 + 12 * f6) / (60 * h[j]);
                     derivertives.SetColumn(j, prime);
@@ -378,10 +572,10 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else if (accuracyOrder == 4)
                 {
                     // f'(x) = {f(x - 2h) - 8f(x - h) + 8f(x + h) - f(x + 2h)} / 12h + O(h^4)
-                    var f1 = _userFunction(parameters - 2 * h, ObservedX);
-                    var f2 = _userFunction(parameters - h, ObservedX);
-                    var f3 = _userFunction(parameters + h, ObservedX);
-                    var f4 = _userFunction(parameters + 2 * h, ObservedX);
+                    var f1 = _modelFunction(parameters - 2 * h, ObservedX);
+                    var f2 = _modelFunction(parameters - h, ObservedX);
+                    var f3 = _modelFunction(parameters + h, ObservedX);
+                    var f4 = _modelFunction(parameters + 2 * h, ObservedX);
 
                     var prime = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * h[j]);
                     derivertives.SetColumn(j, prime);
@@ -390,9 +584,9 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 {
                     // f'(x) = {-11f(x) + 18f(x + h) - 9f(x + 2h) + 2f(x + 3h)} / 6h + O(h^3)
                     var f1 = currentValues;
-                    var f2 = _userFunction(parameters + h, ObservedX);
-                    var f3 = _userFunction(parameters + 2 * h, ObservedX);
-                    var f4 = _userFunction(parameters + 3 * h, ObservedX);
+                    var f2 = _modelFunction(parameters + h, ObservedX);
+                    var f3 = _modelFunction(parameters + 2 * h, ObservedX);
+                    var f4 = _modelFunction(parameters + 3 * h, ObservedX);
 
                     var prime = (-11 * f1 + 18 * f2 - 9 * f3 + 2 * f4) / (6 * h[j]);
                     derivertives.SetColumn(j, prime);
@@ -400,8 +594,8 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else if (accuracyOrder == 2)
                 {
                     // f'(x) = {f(x + h) - f(x - h)} / 2h + O(h^2)
-                    var f1 = _userFunction(parameters + h, ObservedX);
-                    var f2 = _userFunction(parameters - h, ObservedX);
+                    var f1 = _modelFunction(parameters + h, ObservedX);
+                    var f2 = _modelFunction(parameters - h, ObservedX);
 
                     var prime = (f1 - f2) / (2 * h[j]);
                     derivertives.SetColumn(j, prime);
@@ -410,7 +604,7 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 {
                     // f'(x) = {- f(x) + f(x + h)} / h + O(h)
                     var f1 = currentValues;
-                    var f2 = _userFunction(parameters + h, ObservedX);
+                    var f2 = _modelFunction(parameters + h, ObservedX);
 
                     var prime = (-f1 + f2) / h[j];
                     derivertives.SetColumn(j, prime);
@@ -420,6 +614,99 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             }
 
             return derivertives;
+        }
+
+        /// <summary>
+        /// Calculate numerical Jacobian for direct residual function R(p)
+        /// </summary>
+        Matrix<double> NumericalJacobianForResidual(Vector<double> parameters)
+        {
+            const double sqrtEpsilon = 1.4901161193847656250E-8; // sqrt(machineEpsilon)
+
+            // Get current residuals
+            var residuals = _residualFunction(parameters);
+            var residualSize = residuals.Count;
+
+            var derivatives = Matrix<double>.Build.Dense(residualSize, NumberOfParameters);
+
+            var d = 0.000003 * parameters.PointwiseAbs().PointwiseMaximum(sqrtEpsilon);
+
+            var h = Vector<double>.Build.Dense(NumberOfParameters);
+            for (var j = 0; j < NumberOfParameters; j++)
+            {
+                h[j] = d[j];
+
+                if (_accuracyOrder >= 6)
+                {
+                    // f'(x) = {- f(x - 3h) + 9f(x - 2h) - 45f(x - h) + 45f(x + h) - 9f(x + 2h) + f(x + 3h)} / 60h + O(h^6)
+                    var r1 = _residualFunction(parameters - 3 * h);
+                    var r2 = _residualFunction(parameters - 2 * h);
+                    var r3 = _residualFunction(parameters - h);
+                    var r4 = _residualFunction(parameters + h);
+                    var r5 = _residualFunction(parameters + 2 * h);
+                    var r6 = _residualFunction(parameters + 3 * h);
+
+                    var prime = (-r1 + 9 * r2 - 45 * r3 + 45 * r4 - 9 * r5 + r6) / (60 * h[j]);
+                    derivatives.SetColumn(j, prime);
+                }
+                else if (_accuracyOrder == 5)
+                {
+                    // Implementation similar to above for 5th order accuracy
+                    var r1 = residuals;
+                    var r2 = _residualFunction(parameters + h);
+                    var r3 = _residualFunction(parameters + 2 * h);
+                    var r4 = _residualFunction(parameters + 3 * h);
+                    var r5 = _residualFunction(parameters + 4 * h);
+                    var r6 = _residualFunction(parameters + 5 * h);
+
+                    var prime = (-137 * r1 + 300 * r2 - 300 * r3 + 200 * r4 - 75 * r5 + 12 * r6) / (60 * h[j]);
+                    derivatives.SetColumn(j, prime);
+                }
+                else if (_accuracyOrder == 4)
+                {
+                    // Implementation similar to above for 4th order accuracy
+                    var r1 = _residualFunction(parameters - 2 * h);
+                    var r2 = _residualFunction(parameters - h);
+                    var r3 = _residualFunction(parameters + h);
+                    var r4 = _residualFunction(parameters + 2 * h);
+
+                    var prime = (r1 - 8 * r2 + 8 * r3 - r4) / (12 * h[j]);
+                    derivatives.SetColumn(j, prime);
+                }
+                else if (_accuracyOrder == 3)
+                {
+                    // Implementation similar to above for 3rd order accuracy
+                    var r1 = residuals;
+                    var r2 = _residualFunction(parameters + h);
+                    var r3 = _residualFunction(parameters + 2 * h);
+                    var r4 = _residualFunction(parameters + 3 * h);
+
+                    var prime = (-11 * r1 + 18 * r2 - 9 * r3 + 2 * r4) / (6 * h[j]);
+                    derivatives.SetColumn(j, prime);
+                }
+                else if (_accuracyOrder == 2)
+                {
+                    // f'(x) = {f(x + h) - f(x - h)} / 2h + O(h^2)
+                    var r1 = _residualFunction(parameters + h);
+                    var r2 = _residualFunction(parameters - h);
+
+                    var prime = (r1 - r2) / (2 * h[j]);
+                    derivatives.SetColumn(j, prime);
+                }
+                else
+                {
+                    // f'(x) = {- f(x) + f(x + h)} / h + O(h)
+                    var r1 = residuals;
+                    var r2 = _residualFunction(parameters + h);
+
+                    var prime = (-r1 + r2) / h[j];
+                    derivatives.SetColumn(j, prime);
+                }
+
+                h[j] = 0;
+            }
+
+            return derivatives;
         }
 
         #endregion Private Methods
