@@ -122,7 +122,7 @@ namespace MathNet.Numerics.Optimization
             Func<Vector<double>, Vector<double>, Matrix<double>> derivatives,
             Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null)
         {
-            var objective = new NonlinearObjectiveFunction(function, derivatives);
+            var objective = new NonlinearObjectiveModel(function, derivatives);
             objective.SetObserved(observedX, observedY, weight);
             return objective;
         }
@@ -134,7 +134,7 @@ namespace MathNet.Numerics.Optimization
             Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null,
             int accuracyOrder = 2)
         {
-            var objective = new NonlinearObjectiveFunction(function, accuracyOrder: accuracyOrder);
+            var objective = new NonlinearObjectiveModel(function, accuracyOrder: accuracyOrder);
             objective.SetObserved(observedX, observedY, weight);
             return objective;
         }
@@ -168,7 +168,7 @@ namespace MathNet.Numerics.Optimization
                 return derivativeValues;
             }
 
-            var objective = new NonlinearObjectiveFunction(Func, Prime);
+            var objective = new NonlinearObjectiveModel(Func, Prime);
             objective.SetObserved(observedX, observedY, weight);
             return objective;
         }
@@ -191,7 +191,7 @@ namespace MathNet.Numerics.Optimization
                 return functionValues;
             }
 
-            var objective = new NonlinearObjectiveFunction(Func, accuracyOrder: accuracyOrder);
+            var objective = new NonlinearObjectiveModel(Func, accuracyOrder: accuracyOrder);
             objective.SetObserved(observedX, observedY, weight);
             return objective;
         }
@@ -203,7 +203,7 @@ namespace MathNet.Numerics.Optimization
             Func<Vector<double>, Vector<double>, Matrix<double>> derivatives,
             Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null)
         {
-            var objective = new NonlinearObjectiveFunction(function, derivatives);
+            var objective = new NonlinearObjectiveModel(function, derivatives);
             objective.SetObserved(observedX, observedY, weight);
             return objective.ToObjectiveFunction();
         }
@@ -216,7 +216,7 @@ namespace MathNet.Numerics.Optimization
             Vector<double> observedX, Vector<double> observedY, Vector<double> weight = null,
             int accuracyOrder = 2)
         {
-            var objective = new NonlinearObjectiveFunction(function, null, accuracyOrder: accuracyOrder);
+            var objective = new NonlinearObjectiveModel(function, null, accuracyOrder: accuracyOrder);
             objective.SetObserved(observedX, observedY, weight);
             return objective.ToObjectiveFunction();
         }
