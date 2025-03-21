@@ -1,4 +1,5 @@
-﻿using MathNet.Numerics.LinearAlgebra;
+﻿using MathNet.Numerics.Differentiation;
+using MathNet.Numerics.LinearAlgebra;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -449,6 +450,11 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
             _functionValue = 0.5 * _residuals.DotProduct(_residuals);
         }
 
+        /// <summary>
+        /// Evaluates the Jacobian matrix, gradient vector, and approximated Hessian matrix at the current parameters.
+        /// For direct residual mode, gradient is J'R where J is the Jacobian and R is the residual vector.
+        /// For model function mode, gradient is -J'R since residuals are defined as (observed - predicted).
+        /// </summary>
         void EvaluateJacobian()
         {
             if (_coefficients == null)
@@ -467,8 +473,8 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else
                 {
                     // Calculate Jacobian numerically for residual function
-                    _jacobianValue = NumericalJacobianForResidual(Point);
-                    FunctionEvaluations += _accuracyOrder * NumberOfParameters;
+                    _jacobianValue = NumericalJacobianForResidual(Point, out var evaluations);
+                    FunctionEvaluations += evaluations;
                 }
             }
             else
@@ -483,8 +489,8 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 else
                 {
                     // numerical jacobian
-                    _jacobianValue = NumericalJacobian(Point, ModelValues, _accuracyOrder);
-                    FunctionEvaluations += _accuracyOrder * NumberOfParameters;
+                    _jacobianValue = NumericalJacobian(Point, out var evaluations);
+                    FunctionEvaluations += evaluations;
                 }
 
                 // Apply weights to jacobian in model function mode
@@ -516,197 +522,153 @@ namespace MathNet.Numerics.Optimization.ObjectiveFunctions
                 }
             }
 
-            // Gradient, g = -J'W(y − f(x; p)) = -J'L(L'E) = -J'LR
-            _gradientValue = -_jacobianValue.Transpose() * _residuals;
+            // Gradient calculation with sign dependent on mode
+            if (_useDirectResiduals)
+            {
+                // For direct residual mode: g = J'R
+                // When using a direct residual function R(p), the gradient is J'R
+                _gradientValue = _jacobianValue.Transpose() * _residuals;
+            }
+            else
+            {
+                // For model function mode: g = -J'R
+                // When using a model function with residuals defined as (observed - predicted),
+                // the gradient includes a negative sign
+                _gradientValue = -_jacobianValue.Transpose() * _residuals;
+            }
 
             // approximated Hessian, H = J'WJ + ∑LRiHi ~ J'WJ near the minimum
             _hessianValue = _jacobianValue.Transpose() * _jacobianValue;
         }
 
         /// <summary>
-        /// Calculate numerical Jacobian for model function using finite differences
+        /// Calculates the Jacobian matrix using numerical differentiation with finite differences.
+        /// The accuracy order determines which finite difference formula to use.
         /// </summary>
-        /// <param name="parameters">Current parameter values</param>
-        /// <param name="currentValues">Current model values at the parameters</param>
-        /// <param name="accuracyOrder">Order of accuracy for finite difference formula</param>
-        /// <returns>Jacobian matrix of partial derivatives</returns>
-        Matrix<double> NumericalJacobian(Vector<double> parameters, Vector<double> currentValues, int accuracyOrder = 2)
+        /// <param name="parameters">The current parameter values</param>
+        /// <param name="evaluationCount">Returns the number of function evaluations performed</param>
+        /// <returns>The Jacobian matrix of partial derivatives df(x;p)/dp</returns>
+        Matrix<double> NumericalJacobian(Vector<double> parameters, out int evaluationCount)
         {
-            const double sqrtEpsilon = 1.4901161193847656250E-8; // sqrt(machineEpsilon)
+            // Get appropriate finite difference configuration based on _accuracyOrder
+            var (points, center) = GetFiniteDifferenceConfiguration(_accuracyOrder);
 
-            var derivertives = Matrix<double>.Build.Dense(NumberOfObservations, NumberOfParameters);
+            // Initialize NumericalJacobian with appropriate configuration
+            var jacobianCalculator = new NumericalJacobian(points, center);
+            var derivatives = Matrix<double>.Build.Dense(NumberOfObservations, NumberOfParameters);
+            evaluationCount = 0;
 
-            var d = 0.000003 * parameters.PointwiseAbs().PointwiseMaximum(sqrtEpsilon);
-
-            var h = Vector<double>.Build.Dense(NumberOfParameters);
-            for (var j = 0; j < NumberOfParameters; j++)
+            // Process each observation point separately
+            for (var i = 0; i < NumberOfObservations; i++)
             {
-                h[j] = d[j];
+                var obsIndex = i; // Capture observation index for the lambda
 
-                if (accuracyOrder >= 6)
+                // Create adapter function that returns the model value for current observation
+                // when given parameters array
+                double funcAdapter(double[] p)
                 {
-                    // f'(x) = {- f(x - 3h) + 9f(x - 2h) - 45f(x - h) + 45f(x + h) - 9f(x + 2h) + f(x + 3h)} / 60h + O(h^6)
-                    var f1 = _modelFunction(parameters - 3 * h, ObservedX);
-                    var f2 = _modelFunction(parameters - 2 * h, ObservedX);
-                    var f3 = _modelFunction(parameters - h, ObservedX);
-                    var f4 = _modelFunction(parameters + h, ObservedX);
-                    var f5 = _modelFunction(parameters + 2 * h, ObservedX);
-                    var f6 = _modelFunction(parameters + 3 * h, ObservedX);
-
-                    var prime = (-f1 + 9 * f2 - 45 * f3 + 45 * f4 - 9 * f5 + f6) / (60 * h[j]);
-                    derivertives.SetColumn(j, prime);
-                }
-                else if (accuracyOrder == 5)
-                {
-                    // f'(x) = {-137f(x) + 300f(x + h) - 300f(x + 2h) + 200f(x + 3h) - 75f(x + 4h) + 12f(x + 5h)} / 60h + O(h^5)
-                    var f1 = currentValues;
-                    var f2 = _modelFunction(parameters + h, ObservedX);
-                    var f3 = _modelFunction(parameters + 2 * h, ObservedX);
-                    var f4 = _modelFunction(parameters + 3 * h, ObservedX);
-                    var f5 = _modelFunction(parameters + 4 * h, ObservedX);
-                    var f6 = _modelFunction(parameters + 5 * h, ObservedX);
-
-                    var prime = (-137 * f1 + 300 * f2 - 300 * f3 + 200 * f4 - 75 * f5 + 12 * f6) / (60 * h[j]);
-                    derivertives.SetColumn(j, prime);
-                }
-                else if (accuracyOrder == 4)
-                {
-                    // f'(x) = {f(x - 2h) - 8f(x - h) + 8f(x + h) - f(x + 2h)} / 12h + O(h^4)
-                    var f1 = _modelFunction(parameters - 2 * h, ObservedX);
-                    var f2 = _modelFunction(parameters - h, ObservedX);
-                    var f3 = _modelFunction(parameters + h, ObservedX);
-                    var f4 = _modelFunction(parameters + 2 * h, ObservedX);
-
-                    var prime = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * h[j]);
-                    derivertives.SetColumn(j, prime);
-                }
-                else if (accuracyOrder == 3)
-                {
-                    // f'(x) = {-11f(x) + 18f(x + h) - 9f(x + 2h) + 2f(x + 3h)} / 6h + O(h^3)
-                    var f1 = currentValues;
-                    var f2 = _modelFunction(parameters + h, ObservedX);
-                    var f3 = _modelFunction(parameters + 2 * h, ObservedX);
-                    var f4 = _modelFunction(parameters + 3 * h, ObservedX);
-
-                    var prime = (-11 * f1 + 18 * f2 - 9 * f3 + 2 * f4) / (6 * h[j]);
-                    derivertives.SetColumn(j, prime);
-                }
-                else if (accuracyOrder == 2)
-                {
-                    // f'(x) = {f(x + h) - f(x - h)} / 2h + O(h^2)
-                    var f1 = _modelFunction(parameters + h, ObservedX);
-                    var f2 = _modelFunction(parameters - h, ObservedX);
-
-                    var prime = (f1 - f2) / (2 * h[j]);
-                    derivertives.SetColumn(j, prime);
-                }
-                else
-                {
-                    // f'(x) = {- f(x) + f(x + h)} / h + O(h)
-                    var f1 = currentValues;
-                    var f2 = _modelFunction(parameters + h, ObservedX);
-
-                    var prime = (-f1 + f2) / h[j];
-                    derivertives.SetColumn(j, prime);
+                    var paramsVector = Vector<double>.Build.DenseOfArray(p);
+                    var modelValues = _modelFunction(paramsVector, ObservedX);
+                    return modelValues[obsIndex];
                 }
 
-                h[j] = 0;
+                // Calculate gradient (which is the row of Jacobian for this observation)
+                var jacobianRow = jacobianCalculator.Evaluate(funcAdapter, parameters.ToArray());
+
+                // Store results in derivatives matrix
+                for (var j = 0; j < NumberOfParameters; j++)
+                {
+                    derivatives[i, j] = jacobianRow[j];
+                }
             }
 
-            return derivertives;
+            // Get total function evaluation count
+            evaluationCount = jacobianCalculator.FunctionEvaluations;
+
+            return derivatives;
         }
 
         /// <summary>
-        /// Calculate numerical Jacobian for direct residual function R(p)
+        /// Calculate numerical Jacobian for direct residual function R(p) using finite differences.
+        /// The accuracy order determines which finite difference formula to use.
         /// </summary>
-        Matrix<double> NumericalJacobianForResidual(Vector<double> parameters)
+        /// <param name="parameters">Current parameter values</param>
+        /// <param name="evaluationCount">Returns the number of function evaluations performed</param>
+        /// <returns>Jacobian matrix of partial derivatives dR(p)/dp</returns>
+        Matrix<double> NumericalJacobianForResidual(Vector<double> parameters, out int evaluationCount)
         {
-            const double sqrtEpsilon = 1.4901161193847656250E-8; // sqrt(machineEpsilon)
-
             // Get current residuals
             var residuals = _residualFunction(parameters);
             var residualSize = residuals.Count;
 
+            // Get appropriate finite difference configuration based on _accuracyOrder
+            var (points, center) = GetFiniteDifferenceConfiguration(_accuracyOrder);
+
             var derivatives = Matrix<double>.Build.Dense(residualSize, NumberOfParameters);
+            evaluationCount = 0;
+            int totalEvaluations = 0;
 
-            var d = 0.000003 * parameters.PointwiseAbs().PointwiseMaximum(sqrtEpsilon);
-
-            var h = Vector<double>.Build.Dense(NumberOfParameters);
-            for (var j = 0; j < NumberOfParameters; j++)
+            // Process each residual component separately
+            for (var i = 0; i < residualSize; i++)
             {
-                h[j] = d[j];
+                var resIndex = i; // Capture residual index for the lambda
 
-                if (_accuracyOrder >= 6)
+                // Create adapter function that returns the residual component for the current index
+                // when given parameters array
+                double funcAdapter(double[] p)
                 {
-                    // f'(x) = {- f(x - 3h) + 9f(x - 2h) - 45f(x - h) + 45f(x + h) - 9f(x + 2h) + f(x + 3h)} / 60h + O(h^6)
-                    var r1 = _residualFunction(parameters - 3 * h);
-                    var r2 = _residualFunction(parameters - 2 * h);
-                    var r3 = _residualFunction(parameters - h);
-                    var r4 = _residualFunction(parameters + h);
-                    var r5 = _residualFunction(parameters + 2 * h);
-                    var r6 = _residualFunction(parameters + 3 * h);
-
-                    var prime = (-r1 + 9 * r2 - 45 * r3 + 45 * r4 - 9 * r5 + r6) / (60 * h[j]);
-                    derivatives.SetColumn(j, prime);
-                }
-                else if (_accuracyOrder == 5)
-                {
-                    // Implementation similar to above for 5th order accuracy
-                    var r1 = residuals;
-                    var r2 = _residualFunction(parameters + h);
-                    var r3 = _residualFunction(parameters + 2 * h);
-                    var r4 = _residualFunction(parameters + 3 * h);
-                    var r5 = _residualFunction(parameters + 4 * h);
-                    var r6 = _residualFunction(parameters + 5 * h);
-
-                    var prime = (-137 * r1 + 300 * r2 - 300 * r3 + 200 * r4 - 75 * r5 + 12 * r6) / (60 * h[j]);
-                    derivatives.SetColumn(j, prime);
-                }
-                else if (_accuracyOrder == 4)
-                {
-                    // Implementation similar to above for 4th order accuracy
-                    var r1 = _residualFunction(parameters - 2 * h);
-                    var r2 = _residualFunction(parameters - h);
-                    var r3 = _residualFunction(parameters + h);
-                    var r4 = _residualFunction(parameters + 2 * h);
-
-                    var prime = (r1 - 8 * r2 + 8 * r3 - r4) / (12 * h[j]);
-                    derivatives.SetColumn(j, prime);
-                }
-                else if (_accuracyOrder == 3)
-                {
-                    // Implementation similar to above for 3rd order accuracy
-                    var r1 = residuals;
-                    var r2 = _residualFunction(parameters + h);
-                    var r3 = _residualFunction(parameters + 2 * h);
-                    var r4 = _residualFunction(parameters + 3 * h);
-
-                    var prime = (-11 * r1 + 18 * r2 - 9 * r3 + 2 * r4) / (6 * h[j]);
-                    derivatives.SetColumn(j, prime);
-                }
-                else if (_accuracyOrder == 2)
-                {
-                    // f'(x) = {f(x + h) - f(x - h)} / 2h + O(h^2)
-                    var r1 = _residualFunction(parameters + h);
-                    var r2 = _residualFunction(parameters - h);
-
-                    var prime = (r1 - r2) / (2 * h[j]);
-                    derivatives.SetColumn(j, prime);
-                }
-                else
-                {
-                    // f'(x) = {- f(x) + f(x + h)} / h + O(h)
-                    var r1 = residuals;
-                    var r2 = _residualFunction(parameters + h);
-
-                    var prime = (-r1 + r2) / h[j];
-                    derivatives.SetColumn(j, prime);
+                    var paramsVector = Vector<double>.Build.DenseOfArray(p);
+                    var resValues = _residualFunction(paramsVector);
+                    return resValues[resIndex];
                 }
 
-                h[j] = 0;
+                // Calculate gradient (which is the row of Jacobian for this residual component)
+                var jacobianCalculator = new NumericalJacobian(points, center);
+                var jacobianRow = jacobianCalculator.Evaluate(funcAdapter, parameters.ToArray());
+                totalEvaluations += jacobianCalculator.FunctionEvaluations;
+
+                // Store results in derivatives matrix
+                for (var j = 0; j < NumberOfParameters; j++)
+                {
+                    derivatives[i, j] = jacobianRow[j];
+                }
             }
 
+            // Set the total evaluation count
+            evaluationCount = totalEvaluations;
+
             return derivatives;
+        }
+
+        /// <summary>
+        /// Returns appropriate finite difference configuration based on accuracy order.
+        /// </summary>
+        /// <param name="accuracyOrder">Accuracy order (1-6)</param>
+        /// <returns>Tuple of (points count, center position)</returns>
+        private static (int points, int center) GetFiniteDifferenceConfiguration(int accuracyOrder)
+        {
+            switch (accuracyOrder)
+            {
+                case 1:
+                    // 1st order accuracy: 2-point forward difference
+                    return (2, 0);
+                case 2:
+                    // 2nd order accuracy: 3-point central difference
+                    return (3, 1);
+                case 3:
+                    // 3rd order accuracy: 4-point difference
+                    return (4, 1);  // Asymmetric central difference
+                case 4:
+                    // 4th order accuracy: 5-point central difference
+                    return (5, 2);
+                case 5:
+                    // 5th order accuracy: 6-point difference
+                    return (6, 2);  // Asymmetric central difference
+                default:
+                case 6:
+                    // 6th order accuracy: 7-point central difference
+                    return (7, 3);
+            }
         }
 
         #endregion Private Methods
