@@ -1,5 +1,6 @@
 ﻿using MathNet.Numerics.Distributions;
 using MathNet.Numerics.LinearAlgebra;
+using MathNet.Numerics.Statistics;
 using System;
 using System.Linq;
 
@@ -138,6 +139,10 @@ namespace MathNet.Numerics.Optimization
                 Covariance = null;
                 Correlation = null;
                 StandardErrors = null;
+                TStatistics = null;
+                PValues = null;
+                ConfidenceIntervalHalfWidths = null;
+                Dependencies = null;
                 return;
             }
 
@@ -148,85 +153,19 @@ namespace MathNet.Numerics.Optimization
 
             if (Covariance != null)
             {
-                StandardErrors = Covariance.Diagonal().PointwiseSqrt();
+                // Use ParameterStatistics class to compute all statistics at once
+                var stats = ParameterStatistics.ComputeStatistics(
+                    objective.Point,
+                    Covariance,
+                    objective.DegreeOfFreedom
+                );
 
-                // Calculate t-statistics and p-values
-                TStatistics = Vector<double>.Build.Dense(StandardErrors.Count);
-                for (var i = 0; i < StandardErrors.Count; i++)
-                {
-                    TStatistics[i] = StandardErrors[i] > double.Epsilon
-                        ? objective.Point[i] / StandardErrors[i]
-                        : double.NaN;
-                }
-
-                // Calculate p-values based on t-distribution with DegreeOfFreedom
-                PValues = Vector<double>.Build.Dense(TStatistics.Count);
-                var tDist = new StudentT(0, 1, objective.DegreeOfFreedom);
-
-                // Calculate confidence interval half-widths (for 95% confidence)
-                ConfidenceIntervalHalfWidths = Vector<double>.Build.Dense(StandardErrors.Count);
-                var tCritical = tDist.InverseCumulativeDistribution(0.975); // Two-tailed, 95% confidence
-
-                for (var i = 0; i < TStatistics.Count; i++)
-                {
-                    // Two-tailed p-value from t-distribution
-                    var tStat = Math.Abs(TStatistics[i]);
-                    PValues[i] = 2 * (1 - tDist.CumulativeDistribution(tStat));
-
-                    // Calculate confidence interval half-width
-                    ConfidenceIntervalHalfWidths[i] = tCritical * StandardErrors[i];
-                }
-
-                var correlation = Covariance.Clone();
-                var d = correlation.Diagonal().PointwiseSqrt();
-                var dd = d.OuterProduct(d);
-                Correlation = correlation.PointwiseDivide(dd);
-
-                // Calculate dependencies (measure of multicollinearity)
-                Dependencies = Vector<double>.Build.Dense(Correlation.RowCount);
-                for (var i = 0; i < Correlation.RowCount; i++)
-                {
-                    // For each parameter, calculate 1 - 1/VIF where VIF is the variance inflation factor
-                    // VIF is calculated as 1/(1-R²) where R² is the coefficient of determination when
-                    // parameter i is regressed against all other parameters
-
-                    // Extract the correlation coefficients related to parameter i (excluding self-correlation)
-                    var correlations = Vector<double>.Build.Dense(Correlation.RowCount - 1);
-                    var index = 0;
-                    for (var j = 0; j < Correlation.RowCount; j++)
-                    {
-                        if (j != i)
-                        {
-                            correlations[index++] = Correlation[i, j];
-                        }
-                    }
-
-                    // Calculate the square of the multiple correlation coefficient
-                    // In the simple case, this is the maximum of the squared individual correlations
-                    var maxSquaredCorrelation = 0.0;
-                    for (var j = 0; j < correlations.Count; j++)
-                    {
-                        var squaredCorr = correlations[j] * correlations[j];
-                        if (squaredCorr > maxSquaredCorrelation)
-                        {
-                            maxSquaredCorrelation = squaredCorr;
-                        }
-                    }
-
-                    // Calculate dependency = 1 - 1/VIF
-                    var maxSquaredCorrelationCapped = Math.Min(maxSquaredCorrelation, 0.9999);
-                    var vif = 1.0 / (1.0 - maxSquaredCorrelationCapped);
-                    Dependencies[i] = 1.0 - 1.0 / vif;
-                }
-            }
-            else
-            {
-                StandardErrors = null;
-                TStatistics = null;
-                PValues = null;
-                ConfidenceIntervalHalfWidths = null;
-                Correlation = null;
-                Dependencies = null;
+                StandardErrors = stats.StandardErrors;
+                TStatistics = stats.TStatistics;
+                PValues = stats.PValues;
+                ConfidenceIntervalHalfWidths = stats.ConfidenceIntervalHalfWidths;
+                Correlation = stats.Correlation;
+                Dependencies = stats.Dependencies;
             }
         }
 
@@ -256,12 +195,12 @@ namespace MathNet.Numerics.Optimization
             {
                 return;
             }
-
+            
             var n = hasObservations ? objective.ObservedY.Count : objective.Residuals.Count;
             var dof = objective.DegreeOfFreedom;
 
-            // Calculate sum of squared residuals using vector operations
-            var ssRes = objective.Residuals.DotProduct(objective.Residuals);
+            // Calculate sum of squared residuals
+            var ssRes = 2.0 * objective.Value;
 
             // Guard against zero or negative SSR
             if (ssRes <= 0)
@@ -348,7 +287,7 @@ namespace MathNet.Numerics.Optimization
             }
 
             // Only calculate correlation coefficient if we have model values
-            if (hasModelValues)
+            if (hasModelValues && hasObservations)
             {
                 // Calculate correlation coefficient between observed and predicted
                 CorrelationCoefficient = GoodnessOfFit.R(objective.ModelValues, objective.ObservedY);
