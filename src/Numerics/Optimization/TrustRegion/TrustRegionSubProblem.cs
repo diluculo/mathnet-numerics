@@ -24,5 +24,14 @@ namespace MathNet.Numerics.Optimization.TrustRegion
         {
             return new NewtonCGSubproblem();
         }
+
+        /// <summary>
+        /// Creates an instance of the trust region subproblem using the Exact algorithm with eigenvalue decomposition.
+        /// </summary>
+        /// <returns>An implementation of <see cref="ITrustRegionSubproblem"/> based on the Exact method.</returns>
+        public static ITrustRegionSubproblem Exact()
+        {
+            return new ExactSubproblem();
+        }
     }
 }
